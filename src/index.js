@@ -1,73 +1,97 @@
-import SimpleLightbox from 'simplelightbox';
-import 'simplelightbox/dist/simple-lightbox.min.css';
-import ApiServise from './fetchPhoto';
-import cardElem from './card.hbs';
-import { Notify } from 'notiflix/build/notiflix-notify-aio';
 import './style.css';
+import NewsApiService from './fetchingData';
+import { renderHTML } from './editHTML';
+import Notiflix from 'notiflix';
+import { Notify } from 'notiflix/build/notiflix-notify-aio';
+import throttle from 'lodash.throttle';
 
-const per_page = 40;
-let displayedHits = 0;
-const form = document.querySelector('.search-form');
-const buttonMore = document.querySelector('.load-more');
-const cardList = document.querySelector('.gallery');
-const apiServise = new ApiServise();
+const newsApiService = new NewsApiService();
 
-form.addEventListener('submit', onSearch);
-buttonMore.addEventListener('click', onButtonMore);
+const formEl = document.querySelector('#search-form');
+const galleryEl = document.querySelector('.gallery');
+const loadMoreBtn = document.querySelector('[data-action="load-more"]');
+let bottomMsg = document.querySelector('.bottomMessage');
+let pages;
 
-function onSearch(e) {
+loadMoreBtn.classList.add('is-hidden');
+
+formEl.addEventListener('submit', onFormSubmit);
+loadMoreBtn.addEventListener('click', onLoadMore);
+
+function onFormSubmit(e) {
   e.preventDefault();
-  clearContainer();
-  apiServise.query = e.currentTarget.elements.searchQuery.value.trim();
-  apiServise.resetPage();
-  apiServise.fetchPhoto().then(renderUserList);
-  clearContainer();
-}
+  clearHTML();
+  loadMoreBtn.classList.add('is-hidden');
+  newsApiService.resetpage();
+  newsApiService.query = e.currentTarget.elements.searchQuery.value;
 
-function onButtonMore() {
-  apiServise.fetchPhoto().then(renderUserList).then(pageScroll);
-}
-
-function renderUserList(data) {
-  buttonMore.classList.add('is-hidden');
-  cardList.insertAdjacentHTML('beforeend', cardElem(data.hits));
-  displayedHits += data.hits.length;
-  Notify.success(`Hooray! We found ${data.totalHits} images.`);
-  lightboxGallery();
-
-  if (apiServise.query === '' || data.totalHits === 0) {
-    clearContainer();
-    buttonMore.classList.remove('is-hidden');
-    return error();
+  if (bottomMsg) {
+    bottomMsg.remove();
   }
 
-  if (data.totalHits < per_page || displayedHits === data.totalHits) {
-    Notify.warning('We are sorry, but you have reached the end of search results.');
-    buttonMore.classList.remove('is-hidden');
+  if (newsApiService.query.trim() === '') {
+    Notiflix.Notify.failure('Please fill in the field');
+    return;
   }
+  newsApiService
+    .fetchData()
+    .then(({ totalHits, hits }) => {
+      pages = Math.ceil(totalHits / hits.length);
+      if (hits.length === 0) {
+        Notiflix.Notify.failure(
+          'Sorry, there are no images matching your search query. Please try again',
+        );
+        return;
+      }
+      Notiflix.Notify.success(`Hooray! We found ${totalHits} images!`);
+      renderHTML(hits);
+      loadMoreBtn.classList.remove('is-hidden');
+      if (pages === 1) {
+        loadMoreBtn.classList.add('is-hidden');
+        addBottomMsg();
+      }
+    })
+    .catch(error => console.log(error));
 }
-//очищает контейне если нечего не найдено
-function clearContainer() {
-  cardList.innerHTML = '';
+
+function clearHTML() {
+  galleryEl.innerHTML = '';
 }
-///Если бэкенд возвращает пустой массив,
-function error() {
-  return Notify.failure('Sorry, there are no images matching your search query. Please try again.');
-}
-///Прокрутка страницы
-function pageScroll() {
-  const { height: cardHeight } = cardList.firstElementChild.getBoundingClientRect();
-  window.scrollBy({
-    top: cardHeight * 2,
-    behavior: 'smooth',
+
+function onLoadMore() {
+  newsApiService.fetchData().then(({ hits }) => {
+    if (pages === newsApiService.nowPage()) {
+      loadMoreBtn.classList.add('is-hidden');
+      addBottomMsg();
+    }
+    renderHTML(hits);
   });
 }
-///Библиотека SimpleLightbox
-function lightboxGallery() {
-  var lightbox = new SimpleLightbox('.gallery a', {
-    captions: true,
-    captionsData: 'alt',
-    captionPosition: 'bottom',
-    captionDelay: 250 /* options */,
-  });
+
+function addBottomMsg() {
+  bottomMsg = document.createElement('p');
+  bottomMsg.textContent = "We're sorry, but you've reached the end of search results.";
+  bottomMsg.classList.add('bottomMessage');
+  galleryEl.after(bottomMsg);
 }
+// window.addEventListener('scroll', throttle(infiniteScroll,300))
+
+// function infiniteScroll() {
+// const documentRect = document.documentElement.getBoundingClientRect();
+//   if (documentRect.bottom < document.documentElement.clientHeight + 100) {
+//     newsApiService.fetchData()
+//       .then(({ hits }) => {
+//         if (hits.length === 0) {
+//           Notiflix.Notify.failure('End');
+//           console.log('this is the end');
+//           return;
+//         }
+//         renderHTML(hits)
+//       })
+//       .catch(error => {
+//         console.log(error);
+//         return;
+//       });
+
+//   }
+// }
